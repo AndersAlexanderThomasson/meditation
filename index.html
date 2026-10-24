@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Meditations-Timer</title>
+<style>
+  :root{--bg:#0b0f14;--card:#151b23;--line:#263240;--fg:#f3f1ea;--muted:#b9c0c8;--accent:#e8c170;--accent2:#7fb8a4;--danger:#e07a6a}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:18px}
+  body{min-height:100vh;display:flex;flex-direction:column}
+  .screen{display:none;flex:1;flex-direction:column;padding:20px 18px 28px;max-width:640px;width:100%;margin:0 auto}
+  .screen.active{display:flex}
+  header{display:flex;justify-content:space-between;align-items:center;gap:12px}
+  h1{font-size:20px;font-weight:600;margin:0;color:var(--muted);letter-spacing:.02em}
+  .step{color:var(--muted);font-size:17px}
+  .main{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;gap:14px;padding:16px 0}
+  #phaseName{font-size:34px;font-weight:700;color:var(--accent);margin:0;line-height:1.2}
+  #countdown{font-size:min(30vw,150px);font-weight:300;font-variant-numeric:tabular-nums;line-height:1;letter-spacing:-.02em}
+  #hint{font-size:22px;line-height:1.45;color:var(--fg);max-width:30em;min-height:3em}
+  #hint.sentence{font-size:26px;font-style:italic;color:#fff}
+  #next{color:var(--muted);font-size:17px;min-height:1.3em}
+  .bar{width:100%;height:12px;background:var(--line);border-radius:6px;overflow:hidden}
+  .bar>div{height:100%;width:0;background:linear-gradient(90deg,var(--accent2),var(--accent));border-radius:6px}
+  .times{display:flex;justify-content:space-between;color:var(--muted);font-size:16px;margin-top:6px;font-variant-numeric:tabular-nums}
+  .controls{display:flex;gap:12px;margin-top:18px}
+  button{font:inherit;border:0;border-radius:14px;padding:16px 18px;cursor:pointer;color:var(--fg);background:var(--card);border:1px solid var(--line)}
+  button:active{transform:scale(.98)}
+  .primary{flex:2;background:var(--accent);color:#1a1405;border:0;font-weight:700;font-size:22px}
+  .secondary{flex:1}
+  .vol{display:flex;align-items:center;gap:12px;margin-top:16px;color:var(--muted)}
+  .vol input{flex:1}
+  input[type=range]{accent-color:var(--accent);height:32px}
+  .link{background:none;border:1px solid var(--line);padding:10px 14px;font-size:16px;color:var(--muted)}
+  .done{font-size:24px;line-height:1.5;color:#fff}
+  /* Editor */
+  .list{display:flex;flex-direction:column;gap:14px;margin:16px 0}
+  .ph{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:10px}
+  .row{display:flex;gap:10px;align-items:center}
+  .ph label{font-size:14px;color:var(--muted)}
+  .ph input[type=text],.ph textarea{width:100%;font:inherit;color:var(--fg);background:#0e1319;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .ph textarea{resize:vertical;min-height:52px;font-size:16px}
+  .ph input.min{width:76px;flex:0 0 76px;text-align:center}
+  .ph input.name{flex:1;min-width:0;width:auto;font-weight:600}
+  .ph .bad{border-color:var(--danger)}
+  .chk{display:flex;align-items:center;gap:10px;font-size:16px;color:var(--fg)}
+  .chk input{width:24px;height:24px;accent-color:var(--accent)}
+  .tools{display:flex;gap:8px}
+  .tools button{padding:10px 14px;font-size:16px}
+  .tools .del{margin-left:auto;color:var(--danger)}
+  .total{color:var(--muted);text-align:center;margin-bottom:6px}
+  .edbtns{display:flex;flex-direction:column;gap:12px}
+</style>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f1c1a">
+<link rel="apple-touch-icon" href="icon-192.png">
+<script>if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){});});}
+var __wl=null;function __wake(){try{if(navigator.wakeLock&&document.visibilityState==="visible"){navigator.wakeLock.request("screen").then(function(l){__wl=l;}).catch(function(){});}}catch(e){}}
+document.addEventListener("click",__wake,{once:false});document.addEventListener("visibilitychange",__wake);</script>
+</head>
+<body>
+
+<section id="timer" class="screen active">
+  <header>
+    <h1>Meditations-Timer</h1>
+    <button class="link" id="editBtn">Ablauf bearbeiten</button>
+  </header>
+  <div class="main">
+    <div class="step" id="step"></div>
+    <h2 id="phaseName"></h2>
+    <div id="countdown">0:00</div>
+    <div id="hint"></div>
+    <div id="next"></div>
+  </div>
+  <div class="bar"><div id="bar"></div></div>
+  <div class="times"><span id="elapsed">0:00</span><span id="total">0:00</span></div>
+  <div class="controls">
+    <button class="primary" id="startBtn">Start</button>
+    <button class="secondary" id="resetBtn">Zurücksetzen</button>
+  </div>
+  <div class="vol">
+    <span>Lautstärke</span>
+    <input type="range" id="vol" min="0" max="100" step="1" aria-label="Lautstärke">
+    <button class="link" id="testBtn">Ton testen</button>
+  </div>
+</section>
+
+<section id="editor" class="screen">
+  <header>
+    <h1>Ablauf bearbeiten</h1>
+    <button class="link" id="closeEdit">Fertig</button>
+  </header>
+  <div class="list" id="list"></div>
+  <div class="total" id="edTotal"></div>
+  <div class="edbtns">
+    <button id="addBtn">+ Phase hinzufügen</button>
+    <button id="restoreBtn">Standard wiederherstellen</button>
+    <button class="primary" id="doneBtn">Fertig</button>
+  </div>
+</section>
+
+<script>
+(function(){
+  'use strict';
+  var SENTENCES = [
+    "Wie oben, so unten; wie innen, so außen.",
+    "Das All ist Geist; das Universum ist geistig.",
+    "Nichts ruht; alles bewegt sich; alles schwingt.",
+    "Alles fließt aus und ein; alles hat seine Gezeiten.",
+    "Alles ist zweifach; Gegensätze sind ihrem Wesen nach gleich.",
+    "Jede Ursache hat ihre Wirkung; jede Wirkung ihre Ursache.",
+    "Das Geschlecht ist in allem; alles hat sein männliches und weibliches Prinzip."
+  ];
+  var DEFAULTS = [
+    {name:"Ankommen", min:2, hint:"Puls und Atem nach dem Sport einfach wahrnehmen.", sentence:false},
+    {name:"Rhythmischer Atem", min:3, hint:"Vier ein, vier halten, vier aus, vier halten.", sentence:false},
+    {name:"Satz des Tages", min:3, hint:"", sentence:true},
+    {name:"Stille", min:2, hint:"Loslassen. Nur sein.", sentence:false}
+  ];
+  var END_TEXT = "Nimm dir einen Atemzug und halte in einem Satz fest, was du erkannt hast.";
+  var KEY_PH = "mt.phases.v1", KEY_VOL = "mt.volume.v1";
+
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function dayOfYear(d){ var s = new Date(d.getFullYear(),0,0); return Math.floor((d - s)/86400000); }
+  function sentenceOfDay(){ return SENTENCES[dayOfYear(new Date()) % SENTENCES.length]; }
+  function parseMin(v){ var n = parseFloat(String(v).trim().replace(',', '.')); return (isFinite(n) && n > 0 && n <= 600) ? n : null; }
+  function fmtMin(n){ return String(Math.round(n*100)/100).replace('.', ','); }
+  function fmt(ms){ var s = Math.max(0, Math.ceil(ms/1000)); var m = Math.floor(s/60); s = s%60; return m + ":" + (s<10?"0":"") + s; }
+
+  function load(){
+    try{
+      var p = JSON.parse(localStorage.getItem(KEY_PH));
+      if (Array.isArray(p) && p.length) return p.map(function(x){
+        return {name:String(x.name||"Phase"), min:parseMin(x.min)||1, hint:String(x.hint||""), sentence:!!x.sentence};
+      });
+    }catch(e){}
+    return clone(DEFAULTS);
+  }
+  function save(){ try{ localStorage.setItem(KEY_PH, JSON.stringify(phases)); }catch(e){} }
+
+  var phases = load();
+  var volume = (function(){ var v = parseInt(localStorage.getItem(KEY_VOL), 10); return isFinite(v) ? Math.min(100, Math.max(0, v)) : 90; })();
+
+  // ---------- Klang (Klangschale) ----------
+  var ctx = null, master = null;
+  function audio(){
+    if (!ctx){
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      ctx = new AC();
+      master = ctx.createGain();
+      master.connect(ctx.destination);
+    }
+    if (ctx.state === "suspended") ctx.resume();
+    master.gain.value = volume/100;
+    return ctx;
+  }
+  // Teiltöne 432 Hz x1, x2.76, x5.4; Summe der Spitzen < 1, damit nichts übersteuert
+  var PARTIALS = [{r:1, a:0.62, d:5.5}, {r:2.76, a:0.24, d:4.0}, {r:5.4, a:0.12, d:2.6}];
+  var bellCount = 0;
+  function bell(delay){
+    bellCount++;
+    var c = audio(); if (!c) return;
+    var t0 = c.currentTime + 0.03 + (delay||0);
+    PARTIALS.forEach(function(p){
+      var o = c.createOscillator(), g = c.createGain();
+      o.type = "sine"; o.frequency.value = 432 * p.r;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(p.a, t0 + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + p.d);
+      o.connect(g); g.connect(master);
+      o.start(t0); o.stop(t0 + p.d + 0.1);
+    });
+  }
+  function bells(n){ for (var i=0;i<n;i++) bell(i*2.6); }
+
+  // ---------- Timer (Wanduhr-basiert) ----------
+  var state = "idle";   // idle | running | paused | done
+  var startWall = 0;    // Date.now() - bereits vergangene Zeit
+  var pausedElapsed = 0;
+  var lastIdx = -1;
+  var tickId = null;
+
+  function durs(){ return phases.map(function(p){ return p.min*60000; }); }
+  function totalMs(){ return durs().reduce(function(a,b){return a+b;},0); }
+  function elapsedMs(){ return state === "running" ? Date.now() - startWall : pausedElapsed; }
+  function locate(el){
+    var d = durs(), acc = 0;
+    for (var i=0;i<d.length;i++){ if (el < acc + d[i]) return {i:i, left: acc + d[i] - el}; acc += d[i]; }
+    return {i:d.length, left:0};
+  }
+
+  var $ = function(id){ return document.getElementById(id); };
+
+  function render(){
+    var el = state === "idle" ? 0 : elapsedMs(), tot = totalMs();
+    if (state === "done") el = tot;
+    var loc = locate(el);
+    $("total").textContent = fmt(tot);
+    $("elapsed").textContent = fmt(Math.min(el, tot));
+    $("bar").style.width = (tot ? Math.min(100, el/tot*100) : 0) + "%";
+    var hint = $("hint");
+    if (state === "done"){
+      $("step").textContent = "Abgeschlossen";
+      $("phaseName").textContent = "Danke 🙏";
+      $("countdown").textContent = "0:00";
+      hint.className = "done"; hint.textContent = END_TEXT;
+      $("next").textContent = "";
+    } else {
+      var p = phases[loc.i] || phases[0];
+      $("step").textContent = "Phase " + (loc.i+1) + " von " + phases.length;
+      $("phaseName").textContent = p.name;
+      $("countdown").textContent = fmt(state === "idle" ? p.min*60000 : loc.left);
+      if (p.sentence){ hint.className = "sentence"; hint.textContent = "„" + sentenceOfDay() + "“" + (p.hint ? " " + p.hint : ""); }
+      else { hint.className = ""; hint.textContent = p.hint; }
+      var n = phases[loc.i+1];
+      $("next").textContent = n ? "Danach: " + n.name + " (" + fmtMin(n.min) + " Min.)" : "Danach: Abschluss";
+    }
+    $("startBtn").textContent = state === "running" ? "Pause" : state === "paused" ? "Weiter" : state === "done" ? "Neu starten" : "Start";
+  }
+
+  function tick(){
+    if (state !== "running") return;
+    var el = elapsedMs(), loc = locate(el);
+    if (loc.i >= phases.length){
+      state = "done"; stopTick(); bells(3); notify("done"); render(); return;
+    }
+    if (loc.i !== lastIdx){ lastIdx = loc.i; bell(); }
+    render();
+  }
+  function startTick(){ stopTick(); tickId = setInterval(tick, 200); }
+  function stopTick(){ if (tickId) clearInterval(tickId); tickId = null; }
+  function notify(s){ try{ if (window.Android && Android.onState) Android.onState(s); }catch(e){} }
+
+  function start(){
+    audio();
+    if (state === "done") reset();
+    if (state === "idle"){ startWall = Date.now(); lastIdx = -1; }
+    else if (state === "paused"){ startWall = Date.now() - pausedElapsed; }
+    state = "running"; notify("running"); tick(); startTick();
+  }
+  function pause(){ pausedElapsed = Date.now() - startWall; state = "paused"; stopTick(); notify("paused"); render(); }
+  function reset(){ state = "idle"; pausedElapsed = 0; lastIdx = -1; stopTick(); notify("idle"); render(); }
+
+  $("startBtn").onclick = function(){ state === "running" ? pause() : start(); };
+  $("resetBtn").onclick = reset;
+  $("testBtn").onclick = function(){ bell(); };
+  var vol = $("vol"); vol.value = volume;
+  vol.oninput = function(){ volume = parseInt(vol.value,10); if (master) master.gain.value = volume/100; try{ localStorage.setItem(KEY_VOL, String(volume)); }catch(e){} };
+  vol.onchange = function(){ bell(); };
+  document.addEventListener("visibilitychange", function(){ if (!document.hidden){ if (ctx && ctx.state === "suspended") ctx.resume(); tick(); } });
+
+  // ---------- Editor ----------
+  var dirty = false;
+  function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
+  function renderEditor(){
+    var list = $("list"); list.innerHTML = "";
+    phases.forEach(function(p, i){
+      var d = document.createElement("div"); d.className = "ph";
+      d.innerHTML =
+        '<label>Phase ' + (i+1) + ': Name und Minuten</label><div class="row"><input type="text" class="name" value="'+esc(p.name)+'" aria-label="Name der Phase">' +
+        '<input type="text" class="min" inputmode="decimal" value="'+fmtMin(p.min)+'" aria-label="Minuten"><span>Min.</span></div>' +
+        '<label>Hinweis</label><textarea class="hint" rows="2">'+esc(p.hint)+'</textarea>' +
+        '<label class="chk"><input type="checkbox" class="sen"'+(p.sentence?' checked':'')+'> Satz des Tages zeigen</label>' +
+        '<div class="tools"><button class="up" aria-label="Nach oben"'+(i===0?' disabled':'')+'>▲</button>' +
+        '<button class="down" aria-label="Nach unten"'+(i===phases.length-1?' disabled':'')+'>▼</button>' +
+        '<button class="del"'+(phases.length<2?' disabled':'')+'>Entfernen</button></div>';
+      var q = function(s){ return d.querySelector(s); };
+      q(".name").oninput = function(){ p.name = this.value || "Phase"; changed(); };
+      q(".min").oninput = function(){ var n = parseMin(this.value); this.classList.toggle("bad", n === null); if (n !== null){ p.min = n; changed(); } };
+      q(".min").onfocus = function(){ var el = this; setTimeout(function(){ el.select(); }, 0); };
+      q(".min").onblur = function(){ this.value = fmtMin(p.min); this.classList.remove("bad"); };
+      q(".hint").oninput = function(){ p.hint = this.value; changed(); };
+      q(".sen").onchange = function(){ p.sentence = this.checked; changed(); };
+      q(".up").onclick = function(){ move(i, -1); };
+      q(".down").onclick = function(){ move(i, 1); };
+      q(".del").onclick = function(){ if (phases.length > 1 && confirm("Phase „" + p.name + "“ entfernen?")){ phases.splice(i,1); changed(); renderEditor(); } };
+      list.appendChild(d);
+    });
+    edTotal();
+  }
+  function edTotal(){ $("edTotal").textContent = "Gesamtdauer: " + fmt(totalMs()) + " Min."; }
+  function changed(){ dirty = true; save(); edTotal(); }
+  function move(i, dir){ var j = i+dir; if (j<0||j>=phases.length) return; var t = phases[i]; phases[i] = phases[j]; phases[j] = t; changed(); renderEditor(); }
+  function openEditor(){ dirty = false; renderEditor(); $("timer").classList.remove("active"); $("editor").classList.add("active"); window.scrollTo(0,0); }
+  function closeEditor(){
+    $("editor").classList.remove("active"); $("timer").classList.add("active");
+    if (dirty && state !== "idle") reset(); else render();
+    dirty = false;
+  }
+  function editorOpen(){ return $("editor").classList.contains("active"); }
+  $("editBtn").onclick = function(){
+    if (state === "running" && !confirm("Der Timer läuft. Beim Ändern des Ablaufs wird er zurückgesetzt. Trotzdem bearbeiten?")) return;
+    if (state === "running") pause();
+    openEditor();
+  };
+  $("closeEdit").onclick = closeEditor; $("doneBtn").onclick = closeEditor;
+  $("addBtn").onclick = function(){ phases.push({name:"Neue Phase", min:2, hint:"", sentence:false}); changed(); renderEditor(); var l = $("list"); l.lastChild.scrollIntoView({behavior:"smooth"}); l.lastChild.querySelector(".name").select(); };
+  $("restoreBtn").onclick = function(){ if (confirm("Standardablauf wiederherstellen? Deine eigenen Phasen gehen dabei verloren.")){ phases = clone(DEFAULTS); changed(); renderEditor(); } };
+
+  // Zurück-Taste (von Android aufgerufen): "handled" | "running" | "idle"
+  window.handleBack = function(){
+    if (editorOpen()){ closeEditor(); return "handled"; }
+    return (state === "running" || state === "paused") ? "running" : "idle";
+  };
+  // Für Tests
+  window.__mt = { get state(){return state;}, get phases(){return phases;}, get bellCount(){return bellCount;}, locate:locate, sentenceOfDay:sentenceOfDay, parseMin:parseMin };
+
+  render();
+})();
+</script>
+</body>
+</html>
