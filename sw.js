@@ -1,5 +1,5 @@
 /* Service Worker: offline nutzbar, Updates kommen automatisch (zuerst Netz, sonst Cache) */
-var CACHE = "meditation-v2-presets-20261025";
+var CACHE = "meditation-v3-stoppuhr-20261026";
 var FILES = ["./", "index.html", "manifest.json", "icon-192.png", "icon-512.png", "icon-maskable-512.png"];
 self.addEventListener("install", function(e){
   e.waitUntil(caches.open(CACHE).then(function(c){ return c.addAll(FILES); }).then(function(){ return self.skipWaiting(); }));

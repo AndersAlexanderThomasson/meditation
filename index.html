@@ -72,6 +72,24 @@
   .pr .tools{flex-wrap:wrap}
   .note{color:var(--muted);font-size:15px;text-align:center;margin:8px 0}
   .warn{color:var(--accent);font-size:15px;text-align:center;margin:8px 0}
+  /* Umschalter Timer | Stoppuhr */
+  .seg{display:flex;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:4px;gap:4px;margin-bottom:16px}
+  .seg button{flex:1;border:0;background:none;padding:10px 12px;font-size:17px;color:var(--muted);border-radius:10px}
+  .seg button.on{background:var(--line);color:var(--fg);font-weight:600}
+  .seg button .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent2);margin-left:8px;vertical-align:middle;visibility:hidden}
+  .seg button .dot.live{visibility:visible}
+  /* Stoppuhr */
+  #swTime{font-size:min(24vw,130px);font-weight:300;font-variant-numeric:tabular-nums;line-height:1;letter-spacing:-.02em}
+  #swTime .t{font-size:.45em;color:var(--muted)}
+  #swState{color:var(--muted);font-size:17px;min-height:1.3em}
+  #stopwatch .controls{gap:10px}
+  #stopwatch .controls button{flex:1;min-width:0;padding:16px 6px;font-size:16px}
+  #stopwatch .controls .primary{font-size:21px}
+  #stopwatch .controls #swReset{flex:1.2}
+  .laps{list-style:none;margin:16px 0 0;padding:0;display:flex;flex-direction:column;gap:6px;max-height:34vh;overflow:auto}
+  .laps li{display:flex;justify-content:space-between;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:17px;font-variant-numeric:tabular-nums}
+  .laps li span:first-child{color:var(--muted)}
+  .laps li b{font-weight:600}
 </style>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0f1c1a">
@@ -83,6 +101,10 @@ document.addEventListener("click",__wake,{once:false});document.addEventListener
 <body>
 
 <section id="timer" class="screen active">
+  <div class="seg" role="tablist">
+    <button role="tab" class="segTimer on">Timer<span class="dot"></span></button>
+    <button role="tab" class="segSw">Stoppuhr<span class="dot"></span></button>
+  </div>
   <header>
     <h1>Meditations-Timer</h1>
     <button class="link" id="editBtn">Ablauf bearbeiten</button>
@@ -109,6 +131,26 @@ document.addEventListener("click",__wake,{once:false});document.addEventListener
     <input type="range" id="vol" min="0" max="100" step="1" aria-label="Lautstärke">
     <button class="link" id="testBtn">Ton testen</button>
   </div>
+</section>
+
+<section id="stopwatch" class="screen">
+  <div class="seg" role="tablist">
+    <button role="tab" class="segTimer">Timer<span class="dot"></span></button>
+    <button role="tab" class="segSw on">Stoppuhr<span class="dot"></span></button>
+  </div>
+  <header>
+    <h1>Stoppuhr</h1>
+  </header>
+  <div class="main">
+    <div id="swTime">0:00<span class="t">,0</span></div>
+    <div id="swState"></div>
+  </div>
+  <div class="controls">
+    <button class="primary" id="swStart">Start</button>
+    <button class="secondary" id="swLap" disabled>Runde</button>
+    <button class="secondary" id="swReset" disabled>Zurücksetzen</button>
+  </div>
+  <ul class="laps" id="swLaps"></ul>
 </section>
 
 <section id="editor" class="screen">
@@ -304,6 +346,7 @@ document.addEventListener("click",__wake,{once:false});document.addEventListener
     if (cp){ cn.textContent = cp.name; if (!same(cp.phases, phases)){ var m = document.createElement("span"); m.className = "mod"; m.textContent = " (geändert)"; cn.appendChild(m); } }
     else cn.textContent = "Eigener Ablauf";
     $("presetsBtn").disabled = state === "running";
+    if (typeof segDots === "function") try{ segDots(); }catch(e){}
     $("startBtn").textContent = state === "running" ? "Pause" : state === "paused" ? "Weiter" : state === "done" ? "Neu starten" : "Start";
   }
 
@@ -370,7 +413,7 @@ document.addEventListener("click",__wake,{once:false});document.addEventListener
   function edTotal(){ $("edTotal").textContent = "Gesamtdauer: " + fmt(totalMs()) + " Min."; }
   function changed(){ dirty = true; save(); edTotal(); }
   function move(i, dir){ var j = i+dir; if (j<0||j>=phases.length) return; var t = phases[i]; phases[i] = phases[j]; phases[j] = t; changed(); renderEditor(); }
-  function show(id){ ["timer","editor","presets"].forEach(function(x){ $(x).classList.toggle("active", x === id); }); window.scrollTo(0,0); }
+  function show(id){ ["timer","stopwatch","editor","presets"].forEach(function(x){ $(x).classList.toggle("active", x === id); }); window.scrollTo(0,0); }
   function openEditor(){ dirty = false; renderEditor(); show("editor"); }
   function closeEditor(){
     show("timer");
@@ -468,15 +511,88 @@ document.addEventListener("click",__wake,{once:false});document.addEventListener
   $("saveBtn").onclick = saveCurrentAs;
   $("saveName").onkeydown = function(e){ if (e.key === "Enter"){ e.preventDefault(); saveCurrentAs(); } };
 
+  // ---------- Stoppuhr (Wanduhr-basiert, unabhängig vom Phasen-Timer) ----------
+  var KEY_SW = "mt.stopwatch.v1", KEY_VIEW = "mt.view.v1";
+  var sw = {running:false, start:0, acc:0, laps:[]};   // start = Date.now() beim letzten Start, acc = Zeit vor diesem Start
+  try{
+    var sr = JSON.parse(localStorage.getItem(KEY_SW));
+    if (sr && typeof sr === "object"){
+      sw.running = !!sr.running && isFinite(sr.start) && sr.start > 0;
+      sw.start = sw.running ? +sr.start : 0;
+      sw.acc = isFinite(sr.acc) && sr.acc > 0 ? +sr.acc : 0;
+      sw.laps = Array.isArray(sr.laps) ? sr.laps.filter(function(x){ return isFinite(x) && x >= 0; }).map(Number) : [];
+    }
+  }catch(e){}
+  function swSave(){ try{ localStorage.setItem(KEY_SW, JSON.stringify(sw)); }catch(e){} }
+  function swElapsed(){ return sw.acc + (sw.running ? Math.max(0, Date.now() - sw.start) : 0); }
+  function swFmt(ms){
+    var t = Math.floor(ms/100), d = t % 10, s = Math.floor(t/10), h = Math.floor(s/3600), m = Math.floor(s/60) % 60; s = s % 60;
+    var main = h ? h + ":" + (m<10?"0":"") + m + ":" + (s<10?"0":"") + s : m + ":" + (s<10?"0":"") + s;
+    return {main:main, tenth:"," + d};
+  }
+  var swId = null;
+  function swRender(){
+    var f = swFmt(swElapsed()), el = $("swTime");
+    el.firstChild.nodeValue = f.main; el.lastChild.textContent = f.tenth;
+    var idle = !sw.running && sw.acc === 0;
+    $("swStart").textContent = sw.running ? "Pause" : idle ? "Start" : "Weiter";
+    $("swState").textContent = sw.running ? "Läuft" : idle ? "" : "Pausiert";
+    $("swLap").disabled = !sw.running;
+    $("swReset").disabled = idle;
+    var ul = $("swLaps");
+    if (ul.childElementCount !== sw.laps.length){
+      ul.innerHTML = "";
+      for (var i = sw.laps.length - 1; i >= 0; i--){
+        var lap = sw.laps[i] - (i ? sw.laps[i-1] : 0), a = swFmt(lap), b = swFmt(sw.laps[i]);
+        var li = document.createElement("li");
+        li.innerHTML = "<span>Runde " + (i+1) + "</span><b>" + a.main + a.tenth + "</b><span>" + b.main + b.tenth + "</span>";
+        ul.appendChild(li);
+      }
+    }
+    segDots();
+  }
+  function segDots(){
+    var tl = state === "running", sl = sw.running;
+    Array.prototype.forEach.call(document.querySelectorAll(".segTimer .dot"), function(d){ d.classList.toggle("live", tl); });
+    Array.prototype.forEach.call(document.querySelectorAll(".segSw .dot"), function(d){ d.classList.toggle("live", sl); });
+  }
+  function swLoop(){ if (swId) clearInterval(swId); swId = null; if (sw.running) swId = setInterval(swRender, 100); swRender(); }
+  function swToggle(){
+    if (sw.running){ sw.acc = swElapsed(); sw.running = false; sw.start = 0; }
+    else { sw.start = Date.now(); sw.running = true; __wake(); }
+    swSave(); swLoop();
+  }
+  function swResetAll(){
+    if (sw.running && !confirm("Die Stoppuhr läuft. Wirklich zurücksetzen?")) return;
+    sw = {running:false, start:0, acc:0, laps:[]}; swSave(); swLoop();
+  }
+  $("swStart").onclick = swToggle;
+  $("swReset").onclick = swResetAll;
+  $("swLap").onclick = function(){ if (!sw.running) return; sw.laps.push(swElapsed()); swSave(); swRender(); };
+  document.addEventListener("visibilitychange", function(){ if (!document.hidden) swRender(); });
+
+  function setView(v){
+    show(v === "stopwatch" ? "stopwatch" : "timer");
+    try{ localStorage.setItem(KEY_VIEW, v === "stopwatch" ? "stopwatch" : "timer"); }catch(e){}
+    if (v === "stopwatch") swRender(); else render();
+  }
+  Array.prototype.forEach.call(document.querySelectorAll(".segTimer"), function(b){ b.onclick = function(){ setView("timer"); }; });
+  Array.prototype.forEach.call(document.querySelectorAll(".segSw"), function(b){ b.onclick = function(){ setView("stopwatch"); }; });
+  function swOpen(){ return $("stopwatch").classList.contains("active"); }
+
   window.handleBack = function(){
+    if (swOpen()){ if (sw.running) return "running"; setView("timer"); return "handled"; }
     if (presetsOpen()){ closePresets(); return "handled"; }
     if (editorOpen()){ closeEditor(); return "handled"; }
     return (state === "running" || state === "paused") ? "running" : "idle";
   };
   // Für Tests
-  window.__mt = { get state(){return state;}, get phases(){return phases;}, get presets(){return presets;}, get curId(){return curId;}, get bellCount(){return bellCount;}, locate:locate, sentenceOfDay:sentenceOfDay, parseMin:parseMin };
+  window.__mt = { get state(){return state;}, get phases(){return phases;}, get presets(){return presets;}, get curId(){return curId;}, get bellCount(){return bellCount;}, get sw(){return sw;}, swElapsed:swElapsed, locate:locate, sentenceOfDay:sentenceOfDay, parseMin:parseMin };
 
   render();
+  swLoop();
+  try{ if (localStorage.getItem(KEY_VIEW) === "stopwatch") setView("stopwatch"); }catch(e){}
+  if (sw.running) __wake();
 })();
 </script>
 </body>
