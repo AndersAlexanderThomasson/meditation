@@ -53,10 +53,19 @@
   /* Meine Meditationen */
   .cur{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:16px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
   .cur .lbl{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
-  .cur .nm{font-size:18px;font-weight:600;color:var(--accent);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cur .nm{font-size:18px;font-weight:600;color:var(--accent);overflow-wrap:anywhere}
   .cur .mod{font-size:14px;color:var(--muted);font-weight:400}
-  .cur>div{min-width:0}
+  .cur{flex-direction:column;align-items:stretch}
+  .cur .top{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}
+  .cur .top>div{min-width:0}
   .cur button{flex:0 0 auto;padding:10px 14px;font-size:16px}
+  .pick{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+  .pick select{flex:1;min-width:0;font:inherit;font-size:17px;color:var(--fg);background:#0e1319;border:1px solid var(--line);border-radius:10px;padding:12px 10px;-webkit-appearance:menulist;appearance:auto;width:100%}
+  .cur .pick .use{background:var(--accent2);color:#08140f;border:0;font-weight:700;font-size:19px;padding:14px 16px}
+  .pickhint{font-size:14px;color:var(--muted)}
+  .toast{position:fixed;left:50%;top:16px;transform:translateX(-50%) translateY(-20px);white-space:nowrap;background:var(--accent2);color:#08140f;font-weight:600;padding:12px 18px;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.4);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;max-width:92vw;overflow:hidden;text-overflow:ellipsis;text-align:center;z-index:10}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .pr .tools .use{background:var(--accent);color:#1a1405;border:0;font-weight:700}
   button:disabled{opacity:.4;cursor:default}
   button:disabled:active{transform:none}
   .savebox{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:10px;margin-top:16px}
@@ -123,8 +132,15 @@ document.addEventListener("click",__wake,{once:false});document.addEventListener
     <button class="secondary" id="resetBtn">Zurücksetzen</button>
   </div>
   <div class="cur">
-    <div><div class="lbl">Meditation</div><div class="nm" id="curName"></div></div>
-    <button class="link" id="presetsBtn">Meine Meditationen</button>
+    <div class="top">
+      <div><div class="lbl">Meditation</div><div class="nm" id="curName"></div></div>
+      <button class="link" id="presetsBtn">Meine Meditationen</button>
+    </div>
+    <div class="pick">
+      <select id="pickSel" aria-label="Meditation auswählen"></select>
+      <button class="use" id="pickBtn">Übernehmen</button>
+    </div>
+    <div class="pickhint" id="pickHint" hidden>Während der Timer läuft, kann die Meditation nicht gewechselt werden.</div>
   </div>
   <div class="vol">
     <span>Lautstärke</span>
@@ -183,6 +199,8 @@ document.addEventListener("click",__wake,{once:false});document.addEventListener
   <div class="list" id="plist"></div>
   <div class="note" id="pempty" hidden>Noch keine Meditation gespeichert.</div>
 </section>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
 (function(){
@@ -346,6 +364,8 @@ document.addEventListener("click",__wake,{once:false});document.addEventListener
     if (cp){ cn.textContent = cp.name; if (!same(cp.phases, phases)){ var m = document.createElement("span"); m.className = "mod"; m.textContent = " (geändert)"; cn.appendChild(m); } }
     else cn.textContent = "Eigener Ablauf";
     $("presetsBtn").disabled = state === "running";
+    $("pickSel").disabled = $("pickBtn").disabled = state === "running" || !presets.length;
+    $("pickHint").hidden = state !== "running";
     if (typeof segDots === "function") try{ segDots(); }catch(e){}
     $("startBtn").textContent = state === "running" ? "Pause" : state === "paused" ? "Weiter" : state === "done" ? "Neu starten" : "Start";
   }
@@ -456,22 +476,35 @@ document.addEventListener("click",__wake,{once:false});document.addEventListener
       d.innerHTML =
         '<button class="load"><b>' + esc(p.name) + (p.id === curId ? ' ✓' : '') + '</b><span>' + durText(presetMs(p)) + ' · ' + p.phases.length + ' Phasen: ' +
         esc(p.phases.map(function(x){ return x.name; }).join(", ")) + '</span></button>' +
-        '<div class="tools"><button class="ovr">Überschreiben</button><button class="ren">Umbenennen</button><button class="del">Löschen</button></div>';
+        '<div class="tools"><button class="use">Übernehmen</button><button class="ovr">Überschreiben</button><button class="ren">Umbenennen</button><button class="del">Löschen</button></div>';
       var q = function(s){ return d.querySelector(s); };
-      [".load",".ovr",".ren",".del"].forEach(function(s){ q(s).disabled = lock; });
+      [".load",".use",".ovr",".ren",".del"].forEach(function(s){ q(s).disabled = lock; });
       q(".load").onclick = function(){ loadPreset(p.id); };
+      q(".use").onclick = function(){ loadPreset(p.id); };
       q(".ovr").onclick = function(){ overwritePreset(p.id); };
       q(".ren").onclick = function(){ renamePreset(p.id); };
       q(".del").onclick = function(){ deletePreset(p.id); };
       list.appendChild(d);
     });
   }
-  function loadPreset(id){
-    var p = findPreset(id); if (!p || locked()) return;
-    if (state === "paused" && !confirm("Der Timer ist pausiert. Beim Laden wird er zurückgesetzt. Trotzdem laden?")) return;
-    phases = clone(p.phases); save(); curId = id; saveCur();
-    reset(); presetsFrom = "timer"; closePresets();
+  var toastId = null;
+  function toast(msg){ var t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastId); toastId = setTimeout(function(){ t.classList.remove("show"); }, 2200); }
+  function renderPicker(){
+    var sel = $("pickSel"); sel.innerHTML = "";
+    if (!presets.length){ var o0 = document.createElement("option"); o0.textContent = "Noch keine Meditation gespeichert"; o0.value = ""; sel.appendChild(o0); return; }
+    if (!curId || !findPreset(curId)){ var o = document.createElement("option"); o.value = ""; o.textContent = "Meditation wählen …"; o.disabled = true; o.selected = true; sel.appendChild(o); }
+    presets.forEach(function(p){ var o = document.createElement("option"); o.value = p.id; o.textContent = p.name + " · " + durText(presetMs(p)); if (p.id === curId) o.selected = true; sel.appendChild(o); });
   }
+  function loadPreset(id){
+    var p = findPreset(id); if (!p || locked()) return false;
+    if (state === "paused" && pausedElapsed > 0 && !confirm("Der Timer ist pausiert. Beim Übernehmen wird er zurückgesetzt. Trotzdem übernehmen?")){ renderPicker(); return false; }
+    phases = clone(p.phases); save(); curId = id; saveCur();
+    reset(); renderPicker();
+    if (presetsOpen()){ presetsFrom = "timer"; closePresets(); }
+    render(); toast("„" + p.name + "“ übernommen");
+    return true;
+  }
+  $("pickBtn").onclick = function(){ var v = $("pickSel").value; if (!v){ toast("Bitte zuerst eine Meditation wählen"); return; } loadPreset(v); };
   function saveCurrentAs(){
     if (locked()) return;
     var name = $("saveName").value.trim() || suggestName();
@@ -484,26 +517,26 @@ document.addEventListener("click",__wake,{once:false});document.addEventListener
       presets.push(np); curId = np.id;
     }
     savePresets(); saveCur();
-    $("saveName").value = suggestName(); renderPresets(); render();
+    $("saveName").value = suggestName(); renderPresets(); renderPicker(); render();
   }
   function overwritePreset(id){
     var p = findPreset(id); if (!p || locked()) return;
     if (!confirm("„" + p.name + "“ mit dem aktuellen Ablauf (" + phases.length + " Phasen, " + durText(totalMs()) + ") überschreiben?")) return;
-    p.phases = clone(phases); curId = id; savePresets(); saveCur(); renderPresets(); render();
+    p.phases = clone(phases); curId = id; savePresets(); saveCur(); renderPresets(); renderPicker(); render();
   }
   function renamePreset(id){
     var p = findPreset(id); if (!p || locked()) return;
     var n = prompt("Neuer Name:", p.name); if (n === null) return;
     n = n.trim(); if (!n || n === p.name) return;
     var ex = findByName(n); if (ex && ex.id !== id){ alert("Der Name „" + n + "“ ist schon vergeben."); return; }
-    p.name = n; savePresets(); $("saveName").value = suggestName(); renderPresets(); render();
+    p.name = n; savePresets(); $("saveName").value = suggestName(); renderPresets(); renderPicker(); render();
   }
   function deletePreset(id){
     var p = findPreset(id); if (!p || locked()) return;
     if (!confirm("Meditation „" + p.name + "“ wirklich löschen?")) return;
     presets = presets.filter(function(x){ return x.id !== id; });
     if (curId === id){ curId = null; saveCur(); }
-    savePresets(); $("saveName").value = suggestName(); renderPresets(); render();
+    savePresets(); $("saveName").value = suggestName(); renderPresets(); renderPicker(); render();
   }
   $("presetsBtn").onclick = function(){ if (!locked()) openPresets("timer"); };
   $("edSaveBtn").onclick = function(){ openPresets("editor"); };
@@ -589,6 +622,7 @@ document.addEventListener("click",__wake,{once:false});document.addEventListener
   // Für Tests
   window.__mt = { get state(){return state;}, get phases(){return phases;}, get presets(){return presets;}, get curId(){return curId;}, get bellCount(){return bellCount;}, get sw(){return sw;}, swElapsed:swElapsed, locate:locate, sentenceOfDay:sentenceOfDay, parseMin:parseMin };
 
+  renderPicker();
   render();
   swLoop();
   try{ if (localStorage.getItem(KEY_VIEW) === "stopwatch") setView("stopwatch"); }catch(e){}
